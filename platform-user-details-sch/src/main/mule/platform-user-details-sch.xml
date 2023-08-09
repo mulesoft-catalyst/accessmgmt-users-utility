@@ -1,0 +1,210 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<mule xmlns:file="http://www.mulesoft.org/schema/mule/file" xmlns:ee="http://www.mulesoft.org/schema/mule/ee/core"
+	xmlns:http="http://www.mulesoft.org/schema/mule/http"
+	xmlns:sockets="http://www.mulesoft.org/schema/mule/sockets" xmlns="http://www.mulesoft.org/schema/mule/core" xmlns:doc="http://www.mulesoft.org/schema/mule/documentation" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://www.mulesoft.org/schema/mule/core http://www.mulesoft.org/schema/mule/core/current/mule.xsd
+http://www.mulesoft.org/schema/mule/sockets http://www.mulesoft.org/schema/mule/sockets/current/mule-sockets.xsd
+http://www.mulesoft.org/schema/mule/http http://www.mulesoft.org/schema/mule/http/current/mule-http.xsd
+http://www.mulesoft.org/schema/mule/ee/core http://www.mulesoft.org/schema/mule/ee/core/current/mule-ee.xsd
+http://www.mulesoft.org/schema/mule/file http://www.mulesoft.org/schema/mule/file/current/mule-file.xsd">
+	<http:request-config name="HTTP_Request_Token" doc:name="HTTP Request configuration" doc:id="97f6400f-eecb-47a7-beaa-0d659a6540c7" >
+		<http:request-connection host="${httptoken.host}" />
+	</http:request-config>
+	<configuration-properties doc:name="Configuration properties" doc:id="15a4e300-ad8c-4094-8a13-3a77debcef46" file="properties.yaml" />
+	<http:request-config name="HTTP_Request_Users" doc:name="HTTP Request configuration" doc:id="1ba1e797-a123-47e6-8ea6-fee63fdb7ce5" >
+		<http:request-connection host="${httpaccessmgmt.host}"/>
+	</http:request-config>
+	<flow name="platform-user-details-deleteFlow" doc:id="e8868cc9-b49b-4fe4-9cf0-3e04c133e0c9" >
+		<scheduler doc:name="Delete Users Scheduler" doc:id="706845c0-eec4-426a-a385-abc9fea160a0" >
+			<scheduling-strategy >
+				<cron expression="${schedule.deleteusers}"/>
+			</scheduling-strategy>
+		</scheduler>
+		<ee:transform doc:name="Platform Details" doc:id="13c6f802-154b-4386-a8f6-e1ad6d8cfa5e" >
+			<ee:message >
+			</ee:message>
+			<ee:variables >
+				<ee:set-variable variableName="credentials" ><![CDATA[%dw 2.0
+output application/json
+---
+{
+	"client_id": p('connectedapp.client_id'),
+	"client_secret": p('connectedapp.client_secret'),
+	"orgId": p('platform.orgid')
+}]]></ee:set-variable>
+			</ee:variables>
+		</ee:transform>
+		<http:request method="POST" doc:name="Get Token Request" doc:id="62281454-7b80-46bb-8c56-1c3968187731" config-ref="HTTP_Request_Token" path="${httptoken.path}">
+			<http:body><![CDATA[#[%dw 2.0
+output urlencoded
+---
+{
+	"client_id": vars.credentials.client_id,
+	"client_secret": vars.credentials.client_secret,
+	"grant_type": "client_credentials"
+}]]]></http:body>
+		</http:request>
+		<set-variable value="#[payload.access_token]" doc:name="Access Token" doc:id="c6d4b34d-dac6-45a8-9b6c-9fdaa9819d13" variableName="accessToken" />
+		<http:request method="GET" doc:name="Get All Users" doc:id="a5db30f1-0c4c-481a-96e1-669d0b9d1f61" config-ref="HTTP_Request_Users" path="${httpaccessmgmt.path}">
+			<http:headers ><![CDATA[#[%dw 2.0
+output application/java
+---
+
+"Authorization": "Bearer " ++ vars.accessToken]]]></http:headers>
+			<http:query-params ><![CDATA[#[output application/java
+---
+{
+	"limit" : p('httpaccessmgmt.limit')
+}]]]></http:query-params>
+		</http:request>
+		
+		<ee:transform doc:name="Inactive User List by last login date" doc:id="21a7ad37-3329-4f84-a418-8e769a550aaa" >
+			<ee:message >
+				<ee:set-payload ><![CDATA[%dw 2.0
+output application/json
+var filterDelete = now() - (("P$(p('userlastlogin.deletedays'))D" as Period))
+---
+payload.data filter $.lastLogin<filterDelete map{
+	"userEmail" : $.email,
+	"userName" : $.username,
+	"lastLogin" : $.lastLogin,
+	"userId" : $.id
+}]]></ee:set-payload>
+			</ee:message>
+			<ee:variables >
+			</ee:variables>
+		</ee:transform>
+		
+		 
+		<set-variable value="#[sizeOf(payload)]" doc:name="Delete User Count" doc:id="b4a37b79-085b-4e17-affd-21f0687d7677" variableName="deleteUserCount"/>
+		<foreach doc:name="For Each Delete" doc:id="3e969f91-eeed-4f33-bdad-0c1eceaaca13" collection="#[payload]">
+					<set-variable value="#[payload.userId]" doc:name="Delete UserId" doc:id="c644d2b1-be9b-4c19-bead-95eafc795315" variableName="deleteUserId" />
+					<http:request method="DELETE" doc:name="Delete User Request" doc:id="2cea3989-c43d-49fb-943f-3f6738c63385" config-ref="HTTP_Request_Users" path="${httpaccessmgmt.path}/{userId}">
+				<http:headers><![CDATA[#[%dw 2.0
+output application/java
+---
+"Authorization": "Bearer " ++ vars.accessToken]]]></http:headers>
+				<http:uri-params><![CDATA[#[output application/java
+---
+{
+	userId : payload.userId
+}]]]></http:uri-params>
+			</http:request>
+			<logger level="INFO" doc:name="Delete Logger" doc:id="8add79b4-3e06-4e60-92c0-6e3173f74e30" message="Deleted user #[vars.deleteUserId]" />
+				</foreach>
+		<ee:transform doc:name="Deleted Users" doc:id="8060a81d-e584-45b0-a9b8-a76ce41c6ed3" >
+			<ee:message >
+				<ee:set-payload ><![CDATA[%dw 2.0
+output application/json
+---
+{
+	message : "The following users have been DELETED.",
+	deletedUserCount : vars.deleteUserCount,
+	deletedUsers : payload
+}
+]]></ee:set-payload>
+			</ee:message>
+		</ee:transform>
+		<logger level="INFO" doc:name="Deleted Users Logger" doc:id="f34f039a-608c-4211-b043-c2b5e2f5c9e7" message="#[payload]"/>
+	</flow>
+	<flow name="platform-user-details-disableFlow" doc:id="1f06eb06-0d99-48d4-8e82-d8f67141bfdb" >
+		<scheduler doc:name="Disable Users Scheduler" doc:id="47099072-cb51-4f72-bb57-eb3a427133fc" >
+			<scheduling-strategy >
+				<cron expression="${schedule.disableusers}"/>
+			</scheduling-strategy>
+		</scheduler>
+		<ee:transform doc:name="Platform Details" doc:id="2dde926e-8ea5-49da-b855-2c9cba1715b3" >
+			<ee:message />
+			<ee:variables >
+				<ee:set-variable variableName="credentials" ><![CDATA[%dw 2.0
+output application/json
+---
+{
+	"client_id": p('connectedapp.client_id'),
+	"client_secret": p('connectedapp.client_secret'),
+	"orgId": p('platform.orgid')
+}]]></ee:set-variable>
+			</ee:variables>
+		</ee:transform>
+		<http:request method="POST" doc:name="Get Token Request" doc:id="f9697a50-e026-49d8-8b19-8acac0acb8ca" config-ref="HTTP_Request_Token" path="${httptoken.path}" >
+			<http:body ><![CDATA[#[%dw 2.0
+output urlencoded
+---
+{
+	"client_id": vars.credentials.client_id,
+	"client_secret": vars.credentials.client_secret,
+	"grant_type": "client_credentials"
+}]]]></http:body>
+		</http:request>
+		<set-variable value="#[payload.access_token]" doc:name="Access Token" doc:id="880bc7f0-70b3-4a3b-8af7-8f13a3423484" variableName="accessToken" />
+		<http:request method="GET" doc:name="Get All Users" doc:id="5039c50a-5369-4522-9aea-5cdbad5d959d" config-ref="HTTP_Request_Users" path="${httpaccessmgmt.path}" >
+			<http:headers ><![CDATA[#[%dw 2.0
+output application/java
+---
+
+"Authorization": "Bearer " ++ vars.accessToken]]]></http:headers>
+			<http:query-params ><![CDATA[#[output application/java
+---
+{
+	"limit" : p('httpaccessmgmt.limit')
+}]]]></http:query-params>
+		</http:request>
+		<ee:transform doc:name="Disable User List by last login date" doc:id="6577c05d-587d-41a6-9f45-32fcd97eb18f" >
+			<ee:message >
+				<ee:set-payload ><![CDATA[%dw 2.0
+output application/json
+var filterDisable = now() - (("P$(p('userlastlogin.disabledays'))D" as Period))
+---
+payload.data filter $.lastLogin<filterDisable map{
+	"userEmail" : $.email,
+	"userName" : $.username,
+	"lastLogin" : $.lastLogin,
+	"userId" : $.id
+}]]></ee:set-payload>
+			</ee:message>
+			<ee:variables >
+			</ee:variables>
+		</ee:transform>
+		<set-variable value="#[sizeOf(payload)]" doc:name="Disable User Count" doc:id="81fae6c1-d1aa-4159-9542-69eabdc0c3aa" variableName="disableUserCount"/>
+		<foreach doc:name="For Each Disable" doc:id="85733510-7eb4-4db9-80ea-844696bf6fde" collection="#[payload]">
+			<set-variable value="#[payload.userId]" doc:name="Disable UserId" doc:id="dabff98b-f14a-4da0-b3ee-76282aa82281" variableName="disableUserId" />
+			<ee:transform doc:name="Disable User Payload" doc:id="f203eb0e-2e09-49b3-8f0a-271be3037d1a" >
+				<ee:message >
+					<ee:set-payload ><![CDATA[%dw 2.0
+output application/json
+---
+{
+	"id" : vars.disableUserId,
+	"enabled" : false
+}]]></ee:set-payload>
+				</ee:message>
+			</ee:transform>
+			<http:request method="PUT" doc:name="Disable User Request" doc:id="48e43649-221d-49d7-9b2e-4019b7e1a287" config-ref="HTTP_Request_Users" path="${httpaccessmgmt.path}/{userId}">
+				<http:headers><![CDATA[#[%dw 2.0
+output application/java
+---
+"Authorization": "Bearer " ++ vars.accessToken]]]></http:headers>
+				<http:uri-params ><![CDATA[#[output application/java
+---
+{
+	userId : vars.disableUserId
+}]]]></http:uri-params>
+			</http:request>
+			<logger level="INFO" doc:name="Disable Logger" doc:id="41016987-8089-475f-8347-f071718ef70f" message="Disabled user #[vars.DisableUserId]" />
+		</foreach>
+		<ee:transform doc:name="Disabled Users" doc:id="23fb7e74-4d55-486b-8043-976f71553429" >
+			<ee:message >
+				<ee:set-payload ><![CDATA[%dw 2.0
+output application/json
+---
+{
+	message : "The following users have been DISABLED.",
+	disabledUserCount : vars.disableUserCount,
+	disabledUsers : payload
+}
+]]></ee:set-payload>
+			</ee:message>
+		</ee:transform>
+		<logger level="INFO" doc:name="Disabled Users Logger" doc:id="b1574b1e-0323-45be-93fb-498b1a08462d" message="#[payload]"/>
+	</flow>
+</mule>
