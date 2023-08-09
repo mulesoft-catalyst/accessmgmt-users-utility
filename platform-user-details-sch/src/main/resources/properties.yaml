@@ -1,0 +1,25 @@
+platform:
+ orgid: "<orgId>"
+  
+connectedapp:
+  client_id: "<client_id>"
+  client_secret: "<client_secret>"
+  
+httptoken:
+  host: "anypoint.mulesoft.com"
+  path: /accounts/api/v2/oauth2/token
+  
+httpaccessmgmt:
+  host: "anypoint.mulesoft.com"
+  path: /accounts/api/organizations/${platform.orgid}/users
+  limit: "500"
+  
+userlastlogin:
+  deletedays: "1095"
+  disabledays: "365"
+//samplelastlogininfo: "disable if user has not logged in for last year, delete if user has not logged in for last 3 years"
+
+schedule:
+  disableusers: 0 0 12 1 1/1 ? *
+  deleteusers: 0 0 12 15 1/1 ? *
+//samplescheduleinfo: "disable on day 1 of every month, delete on day 15 of every month"
