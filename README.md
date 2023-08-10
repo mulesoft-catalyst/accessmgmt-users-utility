@@ -1,7 +1,6 @@
 Table of Contents
 =================
 
-   * [Table of Contents](#table-of-contents)
    * [Access Management Utility - Users](#access-management-utility---users)
       * [Utility Details](#utility-details)
       * [Requirements](#requirements)
@@ -34,14 +33,14 @@ For both the operations, disabled/deleted user details are captured in the logs.
 ```
 
 ## Requirements
-* Mule Runtime 4.2.2 or above
+* Mule Runtime 4.4.0 or above
 * Anypoint Platform credentials - A Connected App (client credentials) with below scopes for the appropriate business groups
     * View Users in a particular organization
     * Edit users in an organization
 
 ## Steps to configure the utility
 * Clone or download the project from GitHub ``` git clone git@github.com:mulesoft-catalyst/accessmgmt-users-utility.git ```
-* Adjust below properties
+* Edit below properties
     ```yaml
     platform:
       orgid: "<orgId>"
